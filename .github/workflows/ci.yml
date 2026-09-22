@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # The point of the lite tier: nothing but NumPy is compiled. CI installs exactly
+      # what a default on-device bootstrap installs, so a dependency creeping into the
+      # mobile-critical path fails here rather than on the phone.
+      - name: Install (lite tier parity)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "numpy>=1.24" "requests>=2.31" pytest ruff
+
+      - name: Lint
+        run: ruff check --select E,F,W,I --ignore E501 osiris_mobile/ bench/ tests/ conftest.py
+
+      - name: Import smoke test
+        run: |
+          python -c "import osiris_mobile; print(osiris_mobile.__version__)"
+          python -c "from osiris_mobile.intent import classify; print(classify('auto advance'))"
+          python -c "from osiris_mobile.power import Governor; print(Governor())"
+          python -c "from osiris_mobile.ladder import load_program; print('ladder ok')"
+          python -c "import bench.nclm_harness, bench.livlm_perplexity; print('harnesses import without osiris')"
+
+      - name: Shell syntax
+        run: bash -n bootstrap_termux.sh && bash -n launch_fold.sh
+
+      - name: Tests
+        run: pytest tests/ -v --tb=short
+
+  tmux-layout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Fold / unfold / toggle layout transitions
+        run: |
+          set -e
+          S=cisession
+          bash launch_fold.sh --session "$S" --threshold 200 </dev/null >/dev/null 2>&1 || true
+          bash launch_fold.sh --session "$S" --threshold 200 --status
+          bash launch_fold.sh --session "$S" --threshold 40 --relayout
+          test "$(tmux list-panes -t "=$S:lab" | wc -l)" -eq 2
+          bash launch_fold.sh --session "$S" --threshold 200 --relayout
+          test "$(tmux list-panes -t "=$S:lab" | wc -l)" -eq 1
+          bash launch_fold.sh --session "$S" --kill

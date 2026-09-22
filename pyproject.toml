@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osiris-mobile"
+version = "0.4.0b0"
+description = "Android/Termux execution harness for the OSIRIS research stack: fold-aware unified REPL, power-governed routing, and a pre-registration-bound research-ladder runner."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "LicenseRef-OSIRIS-Dual-1.0"}
+authors = [{name = "Devin Phillip Davis", email = "osiris.dnalang@gmail.com"}]
+
+# Deliberately minimal. The research repos (dnalang, organism_sim, osiris) are installed
+# editable from $OSIRIS_SRC by bootstrap_termux.sh with --no-deps; declaring them here
+# would drag qiskit onto a device that does not need it. See docs/STRUCTURE.md.
+dependencies = ["numpy>=1.24.0", "requests>=2.31.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.4.0", "jsonschema>=4.0"]
+
+[project.scripts]
+osiris-mobile = "osiris_mobile.repl:main"
+
+[tool.setuptools.packages.find]
+include = ["osiris_mobile*"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --tb=short"

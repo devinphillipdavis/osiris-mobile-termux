@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+title: "osiris-mobile-termux: an Android/Termux research harness, and a negative result for evolved parameterized quantum circuits as byte-level language models"
+message: "If you use this software, please cite it. Negative results are part of the record."
+type: software
+authors:
+  - family-names: Davis
+    given-names: Devin Phillip
+    email: osiris.dnalang@gmail.com
+    affiliation: Agile Defense Systems LLC
+version: 0.4.0-edge-beta
+date-released: 2026-09-22
+license-url: "https://github.com/osiris-dnalang/osiris-mobile-termux/blob/main/LICENSE"
+repository-code: https://github.com/osiris-dnalang/osiris-mobile-termux
+abstract: >-
+  Execution harness running the OSIRIS research stack entirely on Android under
+  Termux: a tiered installer whose default compiles nothing but NumPy (dnalang
+  imports qiskit lazily, so the artificial-life and compiler front-end track needs
+  no Rust build), a fold-aware tmux layout that migrates running panes as the device
+  hinge opens, a hysteretic battery and thermal governor, deterministic intent
+  routing that separates explaining a subsystem from running it, and a ladder runner
+  that will stage but never launch an experiment whose criterion is not already
+  committed. Two pre-registered experiments are included with their data. LivLM-PPL-1
+  met its criterion (median held-out byte perplexity 125.26 vs uniform 256.0, 5/5
+  seeds) and is recorded PASS, with a diagnostic showing the criterion was confounded
+  by a decoder smoothing term - the circuit's own distribution is about 70x worse
+  than uniform. LivLM-PPL-2, the missing control, finds evolved 72-angle genomes
+  worse than random genomes on 5/5 seeds (median ratio 1.401): FAIL, branch closed.
+  No hardware; no physical claim.
+keywords:
+  - edge computing
+  - Termux
+  - parameterized quantum circuits
+  - language models
+  - pre-registration
+  - negative results

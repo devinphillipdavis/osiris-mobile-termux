@@ -1,0 +1,57 @@
+{
+  "title": "osiris-mobile-termux: an Android/Termux research harness, and a negative result for evolved parameterized quantum circuits as byte-level language models (v0.4.0-edge-beta)",
+  "description": "<p>Archival release of <code>osiris-mobile-termux</code>, an execution harness that runs the OSIRIS research stack entirely on an Android device under Termux, with no cloud compute and no external model API. The harness contains no science: <code>dnalang</code>, <code>organism_sim</code> and <code>osiris</code> are installed editable from their own repositories and are never patched for mobile, so on-device numbers stay comparable to desktop numbers.</p><p><strong>Engineering contributions.</strong> A tiered installer whose default (<code>lite</code>) compiles nothing but NumPy: <code>dnalang</code> declares <code>qiskit&gt;=1.3</code> but imports it lazily inside <code>Circuit.to_qiskit</code> (<code>dnalang/qc_ir.py:63</code>), verified by blocking <code>qiskit</code> in <code>sys.meta_path</code> and importing the full artificial-life, classifier-system and neuro-symbolic-bridge path, so a 30-60 minute on-device Rust build is confined to an optional tier. A fold-aware tmux layout that migrates running panes with <code>join-pane</code>/<code>break-pane</code> on a session-scoped <code>client-resized</code> hook, so opening the device does not interrupt a four-hour run. A hysteretic battery and thermal governor (pause on battery below 20%, resume at 35%) whose latch prevents gauge jitter from thrashing a tournament. Deterministic regex intent routing that separates talking about a subsystem from running it, so domain vocabulary alone never starts a job on battery.</p><p><strong>Pre-registered experiments.</strong> LivLM is a byte-level generative model whose parameters are 72 gate rotation angles of a simulated 8-qubit circuit; the register's 256-entry Born-rule vector is a normalized categorical over the byte vocabulary, so held-out perplexity is well defined. <strong>LivLM-PPL-1</strong> met its committed criterion (median held-out PPL 125.26 &lt; 256.0, 5/5 seeds) and is recorded PASS - but a diagnostic recorded alongside it shows the circuit's own distribution scores a median PPL of 17,855, about 70x worse than uniform, and the entire result belongs to a printable-byte smoothing term in the decoder. The criterion measured the decoder, not the evolved angles; that fault is recorded rather than quietly repaired. <strong>LivLM-PPL-2</strong>, the control the first experiment lacked, compares evolved against random gate angles under an identical decoder, corpus, split, held-out bytes and seeds: evolved parameters are worse on 5/5 seeds, median ratio 1.401 against a 0.95 threshold. <strong>FAIL</strong>; the kill criterion fires and the branch closes. A mechanism consistent with the observation - the fitness function's negentropy term rewards peaked distributions while log-loss punishes confident errors - is offered but was not tested and is flagged as a separate pre-registration.</p><p><strong>Scope.</strong> No hardware was involved and no physical claim is made. The 8-qubit register is a classical state-vector simulation; nothing here bears on tau-phase, 51.843 degrees, negentropy as a physical quantity, or phase-conjugate optics, several of which this program's own record lists as refuted on hardware. The transformer training harness is instrumentation, not an experiment. The Termux installation paths are written against documented Termux behaviour but had not been executed on the target device at the time of deposit. Criteria, the one amendment (recorded before any evaluation seed ran) and outcomes are in <code>docs/PRE_REGISTRATION.md</code>, written in that order; 101 tests cover the governor, the router, the bounded telemetry store, the ladder parser and every verdict-deciding numeric.</p>",
+  "upload_type": "software",
+  "publication_date": "2026-09-22",
+  "version": "v0.4.0-edge-beta",
+  "language": "eng",
+  "creators": [
+    {
+      "name": "Davis, Devin Phillip",
+      "affiliation": "Agile Defense Systems LLC"
+    }
+  ],
+  "access_right": "open",
+  "license": "other-open",
+  "keywords": [
+    "edge computing",
+    "Termux",
+    "Android",
+    "parameterized quantum circuits",
+    "variational circuits",
+    "language models",
+    "perplexity",
+    "genetic algorithms",
+    "pre-registration",
+    "negative results",
+    "reproducibility",
+    "research infrastructure"
+  ],
+  "related_identifiers": [
+    {
+      "scheme": "url",
+      "identifier": "https://github.com/osiris-dnalang/osiris-mobile-termux",
+      "relation": "isSupplementTo",
+      "resource_type": "software"
+    },
+    {
+      "scheme": "doi",
+      "identifier": "10.5281/zenodo.22862567",
+      "relation": "isSupplementTo",
+      "resource_type": "software"
+    },
+    {
+      "scheme": "url",
+      "identifier": "https://github.com/osiris-dnalang/organism_sim",
+      "relation": "requires",
+      "resource_type": "software"
+    },
+    {
+      "scheme": "url",
+      "identifier": "https://github.com/osiris-dnalang/dnalang-core",
+      "relation": "requires",
+      "resource_type": "software"
+    }
+  ],
+  "notes": "Licensed under the OSIRIS Source-Available Dual License v1.0 (see LICENSE); recorded as 'other-open' because the licence is not an SPDX identifier. Negative results are part of the record."
+}
