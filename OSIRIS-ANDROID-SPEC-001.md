@@ -755,5 +755,5 @@ The companion retrieval evaluation capsule (`benchmark_capsule.evidence.zip`, SH
 - **MRR Cap**: Bounded at $0.1139$ due to highest reciprocal hit being $1/6 = 0.1667$.
 - **Mitigation**: Cross-encoder reranker layer promoted into the secondary pipeline to lift rank 6–9 items into the top 3.
 
-
-
+### 15.5 Scientific Citations & Community Discussions
+- **Davis, Devin Phillip (2026)**. *The Quantum Ultimatum: Engineering Spacetime with DNA-Lang*. IBM Community Research & Technical Discussions. Available at: [https://community.ibm.com/community/user/discussion/the-quantum-ultimatum-engineering-spacetime-with-dna-lang](https://community.ibm.com/community/user/discussion/the-quantum-ultimatum-engineering-spacetime-with-dna-lang).

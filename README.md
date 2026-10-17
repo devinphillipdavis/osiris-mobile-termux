@@ -141,6 +141,10 @@ to `organism_sim/docs/PROGRAM.md` *before* the run, the result is recorded PASS 
 and nothing is re-tuned on evaluation seeds. `auto advance` refuses to launch a rung that
 has no pre-registration block.
 
+## Scientific Publications & Community Discussions
+
+- **The Quantum Ultimatum: Engineering Spacetime with DNA-Lang** — Devin Phillip Davis, IBM Community Research & Technical Discussions. Available at: [https://community.ibm.com/community/user/discussion/the-quantum-ultimatum-engineering-spacetime-with-dna-lang](https://community.ibm.com/community/user/discussion/the-quantum-ultimatum-engineering-spacetime-with-dna-lang).
+
 ---
 
 Copyright (c) 2026 Devin Phillip Davis / Agile Defense Systems LLC.
