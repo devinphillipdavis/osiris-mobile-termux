@@ -22,8 +22,10 @@ from osiris_mobile.ime.control import (
 from osiris_mobile.ime.engine import (
     _ADVANCE_STEPS,
     _DEFAULT_PROFILE,
+    _SCHEMAS,
     HOST_PROFILES,
     MAX_ADVANCE_DEPTH,
+    READY,
     IntentEngine,
     SensitiveField,
     normalize,
@@ -202,10 +204,18 @@ def test_normalize_recovers_known_shorthand():
 def test_enhance_delineates_and_never_dispatches():
     out = IntentEngine().compile("summarise this diff", "com.anthropic.claude")
     assert out["detected_app"] == "Claude" and out["planner"] == "template"
-    for section in ("### Objective", "### Context", "### Constraints"):
-        assert section in out["compiled_host_prompt"]
+    prompt = out["compiled_host_prompt"]
+    sections = ["### Objective", "### Active Context", "### Constraints", "### Schema"]
+    assert [prompt.index(s) for s in sections] == sorted(prompt.index(s) for s in sections)
     assert out["requires_operator_dispatch"] is True
     assert out["staged_next"] == [] and out["advance_state"] is None
+
+
+@pytest.mark.parametrize("package", list(HOST_PROFILES) + ["org.example.unknown"])
+def test_enhance_schema_follows_the_host_mode(package):
+    out = IntentEngine().compile("summarise this diff", package)
+    mode = HOST_PROFILES.get(package, _DEFAULT_PROFILE)["mode"]
+    assert out["compiled_host_prompt"].endswith("### Schema\n- %s\n" % _SCHEMAS[mode])
 
 
 def test_enhance_off_passes_normalized_text_through():
@@ -213,8 +223,12 @@ def test_enhance_off_passes_normalized_text_through():
     assert out["compiled_host_prompt"] == "deduce it"
 
 
+def _ready(step):
+    return READY
+
+
 def test_advance_stages_but_never_submits():
-    out = IntentEngine().compile("refactor the parser", "com.openai.chatgpt", auto_advance=True)
+    out = IntentEngine(advance_gate=_ready).compile("refactor the parser", "com.openai.chatgpt", auto_advance=True)
     staged = out["staged_next"]
     assert out["advance_state"] == "STAGED"
     assert [s["iteration"] for s in staged] == list(range(2, MAX_ADVANCE_DEPTH + 1))
@@ -223,7 +237,7 @@ def test_advance_stages_but_never_submits():
 
 
 def test_advance_is_bounded():
-    eng = IntentEngine()
+    eng = IntentEngine(advance_gate=_ready)
     mid = eng.compile("x", "", auto_advance=True, iteration=3)
     assert [s["iteration"] for s in mid["staged_next"]] == [4, 5]
     end = eng.compile("x", "", auto_advance=True, iteration=MAX_ADVANCE_DEPTH)
@@ -275,7 +289,7 @@ def test_label_guard_passes_component_status():
 
 def test_osiris_authored_strings_pass_the_guard():
     texts = [p["directive"] for p in HOST_PROFILES.values()] + [p["name"] for p in HOST_PROFILES.values()]
-    texts += [t for t, _ in _ADVANCE_STEPS] + [_DEFAULT_PROFILE["directive"]]
+    texts += [t for t, _ in _ADVANCE_STEPS] + [_DEFAULT_PROFILE["directive"]] + list(_SCHEMAS.values())
     assert [t for t in texts if label_violations(t)] == []
 
 

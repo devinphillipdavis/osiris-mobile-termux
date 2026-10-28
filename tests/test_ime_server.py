@@ -24,7 +24,8 @@ TASK = "0199e8b4-7c2a-7000-8a11-3f90c8210042"
 
 @pytest.fixture
 def live(tmp_path):
-    bridge = Bridge(KEY, tmp_path / "journal.jsonl")
+    # An explicit gate, so these tests do not depend on whether osiris-cli is installed.
+    bridge = Bridge(KEY, tmp_path / "journal.jsonl", advance_gate=lambda step: "READY")
     server = make_server(bridge, "127.0.0.1", 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -133,6 +134,15 @@ def test_ingest_without_provenance_is_refused(live):
     assert status == 400 and body == {"error": "MISSING_FIELD", "detail": "provenance"}
     status, body, _, _ = call(port, "POST", "/v1/ast/ingest", {"text": "x", "provenance": "passive"})
     assert status == 422 and body["error"] == "INGEST_REJECTED"
+
+
+def test_ast_firewall_capture_is_422(live):
+    bridge, port = live
+    status, body, _, _ = call(port, "POST", "/v1/ast/ingest", {
+        "text": "eval(payload)", "source_package": "com.openai.chatgpt", "provenance": "explicit_copy"})
+    assert status == 422 and body["error"] == "AST_FIREWALL"
+    assert "Forbidden call: 'eval'" in body["detail"]
+    assert len(bridge.ledger) == 0
 
 
 def test_control_dispatch_idempotent_and_journaled_once(live):
