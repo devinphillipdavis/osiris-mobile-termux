@@ -31,9 +31,34 @@ data class LedgerAuditResult(
 )
 
 /**
+ * Compact hash-chained event representation used by session coordinator & mobile tasks.
+ */
+data class LedgerEvent(
+    val sequenceIndex: Long,
+    val timestamp: Long,
+    val actor: String,
+    val action: String,
+    val target: String,
+    val payloadDigest: String,
+    val decision: String,
+    val previousHash: String
+) {
+    fun calculateHash(): String {
+        val data = "$previousHash|$sequenceIndex|$timestamp|$actor|$action|$target|$payloadDigest|$decision"
+        val md = MessageDigest.getInstance("SHA-256")
+        val digest = md.digest(data.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+}
+
+/**
  * Interface for the tamper-evident append-only evidence ledger.
  */
 interface EvidenceLedger {
+    companion object {
+        operator fun invoke(): DefaultEvidenceLedger = DefaultEvidenceLedger()
+    }
+
     fun appendRecord(
         actor: String,
         action: String,
@@ -44,6 +69,17 @@ interface EvidenceLedger {
 
     fun verifyLedgerIntegrity(): LedgerAuditResult
     fun getRecords(): List<EvidenceRecord>
+
+    fun appendEvent(
+        actor: String,
+        action: String,
+        target: String,
+        payloadDigest: String,
+        decision: String
+    ): LedgerEvent
+
+    fun getLedgerRoot(): String
+    fun getEvents(): List<LedgerEvent>
 }
 
 /**
@@ -61,6 +97,36 @@ class DefaultEvidenceLedger : EvidenceLedger {
     }
 
     private val records = CopyOnWriteArrayList<EvidenceRecord>()
+    private val events = CopyOnWriteArrayList<LedgerEvent>()
+    private var currentEventHash = "GENESIS"
+
+    @Synchronized
+    override fun appendEvent(
+        actor: String,
+        action: String,
+        target: String,
+        payloadDigest: String,
+        decision: String
+    ): LedgerEvent {
+        val event = LedgerEvent(
+            sequenceIndex = events.size.toLong() + 1,
+            timestamp = System.currentTimeMillis(),
+            actor = actor,
+            action = action,
+            target = target,
+            payloadDigest = payloadDigest,
+            decision = decision,
+            previousHash = currentEventHash
+        )
+        currentEventHash = event.calculateHash()
+        events.add(event)
+        appendRecord(actor, action, target, payloadDigest, decision)
+        return event
+    }
+
+    override fun getLedgerRoot(): String = currentEventHash
+
+    override fun getEvents(): List<LedgerEvent> = events.toList()
 
     @Synchronized
     override fun appendRecord(

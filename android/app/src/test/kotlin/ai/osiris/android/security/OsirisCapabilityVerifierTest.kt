@@ -1,6 +1,5 @@
 package ai.osiris.android.security
 
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -71,5 +70,26 @@ class OsirisCapabilityVerifierTest {
         val result = verifier.verifyExecutionPreconditions(grant, payload, currentTime)
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()!!.message!!.contains("ERR_GRANT_EXPIRED"))
+    }
+
+    @Test
+    fun testRevokedGrantRejected() {
+        val payload = "revocable-payload".toByteArray(Charsets.UTF_8)
+        val digest = OsirisCapabilityVerifier.computeSha256(payload)
+        val validUntil = System.currentTimeMillis() + 300_000L
+
+        val grant = CapabilityDecision.Granted(
+            grantId = "GRANT-REVOKE-001",
+            authorizationToken = "token",
+            grantedScope = "qpu.execute",
+            boundPayloadDigest = digest,
+            validUntil = validUntil
+        )
+
+        assertTrue(verifier.verifyExecutionPreconditions(grant, payload, System.currentTimeMillis()).isSuccess)
+        verifier.revokeGrant(digest)
+        val revokedResult = verifier.verifyExecutionPreconditions(grant, payload, System.currentTimeMillis())
+        assertTrue(revokedResult.isFailure)
+        assertTrue(revokedResult.exceptionOrNull()!!.message!!.contains("ERR_GRANT_REVOKED"))
     }
 }

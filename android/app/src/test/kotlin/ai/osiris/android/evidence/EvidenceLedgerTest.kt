@@ -1,7 +1,7 @@
 package ai.osiris.android.evidence
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -52,5 +52,32 @@ class EvidenceLedgerTest {
         assertTrue(audit.isValid)
         assertEquals(0L, audit.lastVerifiedSequence)
         assertEquals(0, audit.recordCount)
+    }
+
+    @Test
+    fun testLedgerEventChainProducesDistinctAndTamperSensitiveHashes() {
+        val event1 = ledger.appendEvent(
+            actor = "Devin Phillip Davis",
+            action = "EXEC_DNA",
+            target = "BellState.v1.dna",
+            payloadDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            decision = "GRANTED"
+        )
+        val rootAfterFirst = ledger.getLedgerRoot()
+        assertEquals(64, rootAfterFirst.length)
+
+        val event2 = ledger.appendEvent(
+            actor = "Devin Phillip Davis",
+            action = "EXEC_SIM",
+            target = "OrganismSim",
+            payloadDigest = "a1b2c3d4",
+            decision = "GRANTED"
+        )
+        val rootAfterSecond = ledger.getLedgerRoot()
+        assertNotEquals(rootAfterFirst, rootAfterSecond)
+        assertEquals(rootAfterFirst, event2.previousHash)
+
+        val tampered = event2.copy(decision = "TAMPERED")
+        assertNotEquals(event2.calculateHash(), tampered.calculateHash())
     }
 }

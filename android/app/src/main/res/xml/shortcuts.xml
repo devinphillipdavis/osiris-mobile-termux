@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <capability android:name="custom.actions.intent.OSIRIS_EXECUTE">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.example.myapplication"
+            android:targetClass="com.example.myapplication.MainActivity">
+            <parameter
+                android:name="command"
+                android:key="command"
+                android:mimeType="https://schema.org/Text" />
+        </intent>
+    </capability>
+
+    <share-target android:targetClass="ai.osiris.android.share.ShareReceiverActivity">
+        <data android:mimeType="text/plain" />
+        <data android:mimeType="image/*" />
+        <data android:mimeType="application/*" />
+        <category android:name="ai.osiris.android.category.SHARE_TARGET" />
+    </share-target>
+
+</shortcuts>

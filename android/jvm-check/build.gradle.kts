@@ -1,7 +1,7 @@
 // JVM-only check of the Android app's platform-free Kotlin (ime, security, evidence,
-// substrate). Compiles those sources and runs their JUnit tests without an Android SDK,
-// so CI can hold them to a test rather than to a description. Android-only code
-// (bluetooth/) is excluded; it needs an instrumented run on the device.
+// substrate, bridge, ipc, task). Compiles those sources and runs their JUnit tests without an Android SDK,
+// so CI can hold them to a test rather than to a description. Android-SDK-dependent code
+// (bluetooth/, contact/, notification/, share/, tile/, voice/, and Android UI/Service classes) is excluded.
 plugins {
     kotlin("jvm") version "2.0.21"
 }
@@ -16,7 +16,17 @@ sourceSets {
     main {
         kotlin {
             srcDir(appSrc.dir("main/kotlin"))
-            exclude("**/bluetooth/**")
+            exclude(
+                "**/bluetooth/**",
+                "**/contact/**",
+                "**/notification/**",
+                "**/share/**",
+                "**/tile/**",
+                "**/voice/**",
+                "**/ime/OsirisIME.kt",
+                "**/ime/OsirisKeyboardView.kt",
+                "**/task/OsirisSessionCoordinator.kt"
+            )
         }
     }
     test {
@@ -27,7 +37,10 @@ sourceSets {
 }
 
 dependencies {
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+    implementation("org.json:json:20231013")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }
 
 java {

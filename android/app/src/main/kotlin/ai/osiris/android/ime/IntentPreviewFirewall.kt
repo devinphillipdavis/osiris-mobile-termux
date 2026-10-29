@@ -13,9 +13,32 @@ enum class RiskLevel {
 }
 
 /**
+ * Mobile session task risk level classification.
+ */
+enum class IntentRiskLevel {
+    SAFE, LOW, MEDIUM, HIGH, CRITICAL, UNTRUSTED
+}
+
+/**
  * Epistemic provenance and validation status of an AST command candidate.
  */
 sealed interface AstProvenance {
+    companion object {
+        operator fun invoke(
+            nodeType: String,
+            identifier: String,
+            arguments: List<String> = emptyList(),
+            isSystemPrimitive: Boolean = false,
+            chainsToDestructive: Boolean = false
+        ): Node = Node(
+            nodeType = nodeType,
+            identifier = identifier,
+            arguments = arguments,
+            isSystemPrimitive = isSystemPrimitive,
+            chainsToDestructive = chainsToDestructive
+        )
+    }
+
     /**
      * Verified action successfully parsed and confirmed safe by the local trusted computing base (TCB).
      */
@@ -36,6 +59,22 @@ sealed interface AstProvenance {
         val firewallRejectionReason: String,
         val detectedDangerousTokens: List<String> = emptyList()
     ) : AstProvenance
+
+    /**
+     * Syntactic AST node provenance for mobile session firewall checks.
+     */
+    data class Node(
+        val nodeType: String,
+        val identifier: String,
+        val arguments: List<String> = emptyList(),
+        val isSystemPrimitive: Boolean = false,
+        val chainsToDestructive: Boolean = false
+    ) : AstProvenance
+}
+
+sealed interface ActionPreviewResult {
+    data class Allowed(val targetUri: String, val parameters: Map<String, String>, val risk: IntentRiskLevel) : ActionPreviewResult
+    data class Rejected(val reason: String, val violatingAst: AstProvenance.Node) : ActionPreviewResult
 }
 
 /**
@@ -49,7 +88,86 @@ interface IntentPreviewFirewall {
     /**
      * Analyzes candidate command string and produces verified AST provenance.
      */
-    fun analyzeCommand(commandText: String): AstProvenance
+    fun analyzeCommand(commandText: String): AstProvenance =
+        DefaultIntentPreviewFirewall().analyzeCommand(commandText)
+
+    /**
+     * Parses and validates a mobile intent string into an ActionPreviewResult.
+     */
+    fun parseAndValidateIntent(rawIntent: String, context: Any? = null): ActionPreviewResult =
+        IntentPreviewFirewallImpl().parseAndValidateIntent(rawIntent, context)
+}
+
+/**
+ * Mobile session implementation of IntentPreviewFirewall returning ActionPreviewResult.
+ */
+class IntentPreviewFirewallImpl : IntentPreviewFirewall {
+
+    companion object {
+        private val DENYLISTED_PRIMITIVES = setOf(
+            "exec", "eval", "compile", "__import__", "os.system", "subprocess", "rm -rf", "/etc/passwd"
+        )
+        private val CHAINING_OPERATORS = setOf("&&", ";", "||")
+        private val IMMUTABLE_GOVERNANCE_TARGETS = setOf("policy.json", "cloudbuild.yaml")
+        private val ALLOWLISTED_GRAMMAR = setOf("/ignite", "/learn", "/dna", "/ledger", "/status", "/sim")
+    }
+
+    override fun parseAndValidateIntent(rawIntent: String, context: Any?): ActionPreviewResult {
+        val normalized = rawIntent.trim()
+        if (normalized.isEmpty()) {
+            return ActionPreviewResult.Rejected(
+                reason = "Empty intent is not permitted.",
+                violatingAst = AstProvenance("Empty", rawIntent)
+            )
+        }
+
+        // 1. First check for primitives so that primitive rejection takes precedence before any allowlist match
+        val violatedPrimitive = DENYLISTED_PRIMITIVES.firstOrNull { normalized.contains(it) }
+        if (violatedPrimitive != null) {
+            return ActionPreviewResult.Rejected(
+                reason = "Forbidden execution primitive detected: $violatedPrimitive",
+                violatingAst = AstProvenance("Call", violatedPrimitive, isSystemPrimitive = true)
+            )
+        }
+
+        // 2. Chaining operators MUST be evaluated before any allowlist match
+        val hasChaining = CHAINING_OPERATORS.any { normalized.contains(it) } ||
+            normalized.contains("\n") || normalized.contains("\r") || normalized.contains("|") ||
+            normalized.contains("`") || normalized.contains("$(")
+        if (hasChaining) {
+            return ActionPreviewResult.Rejected(
+                reason = "Multi-statement chaining is strictly prohibited.",
+                violatingAst = AstProvenance("ChainOperator", rawIntent, chainsToDestructive = true)
+            )
+        }
+
+        // 3. Governance Target Mutation Check MUST be evaluated before any allowlist match
+        val targetsGovernance = IMMUTABLE_GOVERNANCE_TARGETS.firstOrNull { normalized.contains(it) }
+        if (targetsGovernance != null) {
+            return ActionPreviewResult.Rejected(
+                reason = "Attempted mutation of immutable governance target: $targetsGovernance",
+                violatingAst = AstProvenance("FileWrite", targetsGovernance)
+            )
+        }
+
+        // 4. Strict command token allowlist check and argument extraction
+        val tokens = normalized.split(Regex("\\s+"))
+        val command = tokens.first()
+        if (command in ALLOWLISTED_GRAMMAR) {
+            val args = tokens.drop(1)
+            val params = args.mapIndexed { idx, arg -> "arg$idx" to arg }.toMap()
+            return ActionPreviewResult.Allowed(
+                targetUri = command,
+                parameters = params,
+                risk = IntentRiskLevel.SAFE
+            )
+        }
+
+        return ActionPreviewResult.Rejected(
+            reason = "Intent does not match allowlisted grammar and requires manual review.",
+            violatingAst = AstProvenance("Unknown", rawIntent)
+        )
+    }
 }
 
 /**

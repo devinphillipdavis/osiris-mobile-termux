@@ -13,8 +13,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
-    <!-- Loopback IPC to local Termux daemon -->
+    <!-- Loopback IPC to local Termux daemon & Node Beta -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"
@@ -25,11 +29,69 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
+        <activity
+            android:name=".contact.OsirisContactActivity"
+            android:label="OSIRIS Sovereign Contact"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="osiris" android:host="contact" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".share.ShareReceiverActivity"
+            android:label="OSIRIS Dispatch"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/*" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".tile.OsirisQuickTileService"
+            android:label="OSIRIS"
+            android:icon="@android:drawable/sym_def_app_icon"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".ime.OsirisIME"
+            android:permission="android.permission.BIND_INPUT_METHOD"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+
         <!-- Bluetooth SCO & BLE Peripheral Foreground Service -->
         <service
             android:name=".bluetooth.BluetoothScoPersistenceService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|microphone" />
+
+        <receiver
+            android:name=".notification.OsirisNotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="ai.osiris.android.ACTION_RETRY_TASK" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

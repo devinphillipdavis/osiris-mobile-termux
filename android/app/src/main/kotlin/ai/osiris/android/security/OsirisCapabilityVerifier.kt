@@ -34,7 +34,8 @@ sealed interface CapabilityDecision {
     ) : CapabilityDecision
 
     data class Denied(
-        val reason: String
+        val reason: String,
+        val errorCode: String = "ERR_DENIED"
     ) : CapabilityDecision
 }
 
@@ -48,10 +49,21 @@ sealed interface CapabilityDecision {
 class OsirisCapabilityVerifier {
 
     companion object {
+        const val ERR_PAYLOAD_MISMATCH = "ERR_PAYLOAD_MISMATCH"
+        const val ERR_GRANT_EXPIRED = "ERR_GRANT_EXPIRED"
+        const val ERR_GRANT_REVOKED = "ERR_GRANT_REVOKED"
+        const val MAX_TTL_MS = 5 * 60 * 1000L
+
         fun computeSha256(bytes: ByteArray): String {
             val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
             return digest.joinToString("") { "%02x".format(it) }
         }
+    }
+
+    private val revokedPayloadDigests = mutableSetOf<String>()
+
+    fun revokeGrant(payloadDigest: String) {
+        revokedPayloadDigests.add(payloadDigest.lowercase())
     }
 
     /**
@@ -60,26 +72,34 @@ class OsirisCapabilityVerifier {
      * @param decision The granted capability token.
      * @param actualPayloadBytes The actual raw execution payload bytes presented at dispatch time.
      * @param currentTimeMillis Current wall-clock time in UTC milliseconds.
-     * @return Result.success if valid; Result.failure with SecurityException if expired or payload mismatched.
+     * @return Result.success if valid; Result.failure with SecurityException if revoked, expired, or payload mismatched.
      */
     fun verifyExecutionPreconditions(
         decision: CapabilityDecision.Granted,
         actualPayloadBytes: ByteArray,
         currentTimeMillis: Long
     ): Result<Unit> {
+        val actualDigest = computeSha256(actualPayloadBytes)
+
+        // 0. Revocation check (F-4)
+        if (decision.boundPayloadDigest.lowercase() in revokedPayloadDigests || actualDigest.lowercase() in revokedPayloadDigests) {
+            return Result.failure(
+                SecurityException("$ERR_GRANT_REVOKED: Authorization grant '${decision.grantId}' for digest ${decision.boundPayloadDigest} has been revoked")
+            )
+        }
+
         // 1. Expiration check
         if (currentTimeMillis > decision.validUntil) {
             return Result.failure(
-                SecurityException("ERR_GRANT_EXPIRED: Authorization grant '${decision.grantId}' expired at ${decision.validUntil} (current: $currentTimeMillis)")
+                SecurityException("$ERR_GRANT_EXPIRED: Authorization grant '${decision.grantId}' expired at ${decision.validUntil} (current: $currentTimeMillis)")
             )
         }
 
         // 2. Cryptographic payload-grant binding check (SYS-021)
-        val actualDigest = computeSha256(actualPayloadBytes)
         if (!actualDigest.equals(decision.boundPayloadDigest, ignoreCase = true)) {
             return Result.failure(
                 SecurityException(
-                    "ERR_PAYLOAD_MISMATCH (SYS-021 VIOLATION): Execution payload digest ($actualDigest) does not match authorized grant digest (${decision.boundPayloadDigest})"
+                    "$ERR_PAYLOAD_MISMATCH (SYS-021 VIOLATION): Execution payload digest ($actualDigest) does not match authorized grant digest (${decision.boundPayloadDigest})"
                 )
             )
         }

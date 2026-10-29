@@ -8,10 +8,12 @@ import org.junit.Test
 class IntentPreviewFirewallTest {
 
     private lateinit var firewall: IntentPreviewFirewall
+    private lateinit var mobileFirewall: IntentPreviewFirewallImpl
 
     @Before
     fun setUp() {
         firewall = DefaultIntentPreviewFirewall()
+        mobileFirewall = IntentPreviewFirewallImpl()
     }
 
     @Test
@@ -92,5 +94,20 @@ class IntentPreviewFirewallTest {
         assertTrue(provenance is AstProvenance.UnverifiedOrUntrusted)
         val unverified = provenance as AstProvenance.UnverifiedOrUntrusted
         assertTrue(unverified.firewallRejectionReason.contains("immutable governance artifact"))
+    }
+
+    @Test
+    fun testMobileFirewallRejectsAllowlistPrefixWithChainingOrGovernanceTargets() {
+        val r1 = mobileFirewall.parseAndValidateIntent("/status; rm -rf /")
+        assertTrue(r1 is ActionPreviewResult.Rejected)
+
+        val r2 = mobileFirewall.parseAndValidateIntent("/status && /ignite")
+        assertTrue(r2 is ActionPreviewResult.Rejected)
+
+        val r3 = mobileFirewall.parseAndValidateIntent("/dna policy.json")
+        assertTrue(r3 is ActionPreviewResult.Rejected)
+
+        val allowed = mobileFirewall.parseAndValidateIntent("/dna XY4_Bell_Decouple.v1.dna")
+        assertTrue(allowed is ActionPreviewResult.Allowed)
     }
 }

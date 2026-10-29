@@ -2,10 +2,13 @@ package ai.osiris.android.substrate
 
 import ai.osiris.android.security.CapabilityDecision
 import ai.osiris.android.security.OsirisCapabilityVerifier
-import java.io.OutputStreamWriter
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+
+class ThermalViolationException(message: String) : Exception(message)
 
 /**
  * Execution dispatch response from the local Termux runtime.
@@ -34,8 +37,35 @@ class NodeAlphaSubstrateBridge(
 
     companion object {
         const val THERMAL_HORIZON_SECONDS = 300.0
+        const val TEMPORAL_LOCK_MS = 300_000L
         const val PROMPT_CONTRACT = "osiris::}{> "
         const val MAX_OPERATING_TEMP_CELSIUS = 42.0
+        const val THERMAL_CEILING_C = 42.0
+    }
+
+    /**
+     * Executes a block of code while enforcing the temporal lock horizon (default 300.0s).
+     */
+    suspend fun <T> executeWithTemporalLock(
+        timeoutMs: Long = TEMPORAL_LOCK_MS,
+        block: suspend () -> T
+    ): T {
+        return try {
+            withTimeout(timeoutMs) {
+                block()
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw RuntimeException("OSIRIS Invariant Violated: Node Alpha temporal horizon (${timeoutMs / 1000.0}s) exceeded.", e)
+        }
+    }
+
+    /**
+     * Checks device temperature against the invariant 42.0C thermal ceiling.
+     */
+    fun verifyThermalCeiling(currentTempC: Double) {
+        if (currentTempC > THERMAL_CEILING_C) {
+            throw ThermalViolationException("OSIRIS Invariant Violated: Node Alpha thermal ceiling (42.0°C) exceeded. Current: $currentTempC°C.")
+        }
     }
 
     /**
