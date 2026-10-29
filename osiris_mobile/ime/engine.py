@@ -12,20 +12,27 @@ Auto Advance *stages* follow-up turns, every one marked
 ``requires_operator_dispatch``; it never submits them, and anything that would push,
 merge, publish, deploy or delete is flagged ``irreversible`` so the client must ask for a
 second, distinct confirmation. An agent loop is a proposal stream, never authorization.
+
+Each turn is staged only after the engine's advance gate answers ``READY`` for it; the
+first other answer halts the sequence there. With no gate, nothing is staged: Auto
+Advance fails closed. The bridge supplies osiris-cli's CapabilityGapAnalyzer as the gate
+when osiris-cli is installed (``gate.make_gap_gate``).
 """
 
 import hashlib
 import re
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 __all__ = [
-    "Mode", "HOST_PROFILES", "MAX_ADVANCE_DEPTH",
+    "Mode", "HOST_PROFILES", "MAX_ADVANCE_DEPTH", "READY",
     "SensitiveField", "normalize", "profile_for", "is_irreversible", "IntentEngine",
 ]
 
 #: Total turns in one advance sequence, the operator's first turn included.
 MAX_ADVANCE_DEPTH = 5
 MAX_INTENT_CHARS = 8 * 1024
+#: The one advance-gate answer that lets a turn be staged.
+READY = "READY"
 
 
 class Mode(object):
@@ -93,6 +100,16 @@ HOST_PROFILES: Dict[str, Dict[str, str]] = {
 _DEFAULT_PROFILE = {"name": "", "mode": Mode.STANDARD,
                     "directive": "Answer the request directly and say what you could not verify."}
 
+# The shape of the answer, per interception mode. The directive says what to do; the
+# schema says how to lay it out so the operator can check it before acting on it.
+_SCHEMAS = {
+    Mode.LLM_INTERCEPT: "Answer, then Verified (what you checked and how), then Unverified (what you could not check).",
+    Mode.CLI_DIRECT: "One fenced block of commands, then one line per command saying what it changes.",
+    Mode.DEVOPS: "Branch name, PR title and PR body, as a draft for the operator to review.",
+    Mode.COMMUNICATION: "The message text only, for the operator to review and send.",
+    Mode.STANDARD: "Answer, then one line on anything you could not verify.",
+}
+
 _IRREVERSIBLE = re.compile(
     r"(?i)\b(push|merge|commit|tag|release|publish|deploy|delete|drop|destroy|"
     r"force[- ]?push|rm\s+-rf|revoke|transfer|send|pay|purchase|scale\s+down)\b")
@@ -142,8 +159,10 @@ def _context_block(nodes: Sequence[Dict[str, Any]]) -> str:
 
 
 class IntentEngine(object):
-    def __init__(self, node_label: str = "NODE_ALPHA") -> None:
+    def __init__(self, node_label: str = "NODE_ALPHA",
+                 advance_gate: Optional[Callable[[Dict[str, Any]], str]] = None) -> None:
         self.node_label = node_label
+        self.advance_gate = advance_gate
 
     def compile(
         self,
@@ -170,28 +189,39 @@ class IntentEngine(object):
             prompt = (
                 "[OSIRIS interception | target: %s]\n"
                 "### Objective\n%s\n\n"
-                "### Context (%s, explicit captures only)\n%s\n\n"
-                "### Constraints\n- %s\n- Deterministic, verifiable output; say what you could not verify.\n"
-                % (profile["name"], deduced, self.node_label, _context_block(context), profile["directive"])
+                "### Active Context (%s, explicit captures only)\n%s\n\n"
+                "### Constraints\n- %s\n- Deterministic, verifiable output; say what you could not verify.\n\n"
+                "### Schema\n- %s\n"
+                % (profile["name"], deduced, self.node_label, _context_block(context), profile["directive"],
+                   _SCHEMAS[profile["mode"]])
             )
         else:
             prompt = deduced
 
         staged: List[Dict[str, Any]] = []
         advance_state: Optional[str] = None
+        advance_halt: Optional[Dict[str, Any]] = None
         if auto_advance:
             if iteration >= MAX_ADVANCE_DEPTH:
                 advance_state = "ADVANCE_LIMIT"
+            elif self.advance_gate is None:
+                advance_state = "NO_GATE"
             else:
                 advance_state = "STAGED"
                 for nxt in range(iteration + 1, MAX_ADVANCE_DEPTH + 1):
                     text, irreversible = _ADVANCE_STEPS[nxt - 2]
-                    staged.append({
+                    step = {
                         "iteration": nxt,
                         "prompt": text,
                         "requires_operator_dispatch": True,
                         "irreversible": irreversible,
-                    })
+                    }
+                    disposition = self._gate(step)
+                    if disposition != READY:
+                        advance_state = "HALTED"
+                        advance_halt = {"iteration": nxt, "disposition": disposition}
+                        break
+                    staged.append(step)
 
         return {
             "planner": "template",
@@ -205,5 +235,16 @@ class IntentEngine(object):
             "auto_enhance_active": bool(auto_enhance),
             "auto_advance_active": bool(auto_advance),
             "advance_state": advance_state,
+            "advance_halt": advance_halt,
             "staged_next": staged,
         }
+
+    def _gate(self, step: Dict[str, Any]) -> str:
+        """The gate's answer for one turn, as a string. A gate that raises or answers with
+        anything but a string has not said READY, so the turn is not staged."""
+        try:
+            answer = self.advance_gate(dict(step))
+        except Exception as exc:
+            return "GATE_ERROR: %s" % type(exc).__name__
+        answer = getattr(answer, "value", answer)  # the analyzer's Disposition is a str Enum
+        return answer if isinstance(answer, str) else "GATE_ERROR: answer is not a string"

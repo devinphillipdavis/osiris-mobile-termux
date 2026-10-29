@@ -6,18 +6,21 @@ protocol for explicit captures, intent compilation and allowlisted control actio
 Neither channel executes anything on its own. See ``docs/OSIRIS-IME-INTERCEPTION-001.md``.
 """
 
-from .clipboard import ASTClipboard, IngestRejected, Provenance
+from .clipboard import ASTClipboard, FirewallRejected, IngestRejected, Provenance
 from .control import Action, ControlPlane, State, TaskCache
 from .engine import HOST_PROFILES, IntentEngine, SensitiveField
+from .firewall import firewall_violations
+from .gate import make_gap_gate
 from .labels import LabelRejected, guard_label, label_violations
 from .ledger import HashChainLedger
 from .redact import redact
 from .server import Bridge, make_server, sign_reply, sign_request
 
 __all__ = [
-    "ASTClipboard", "IngestRejected", "Provenance",
+    "ASTClipboard", "FirewallRejected", "IngestRejected", "Provenance",
     "Action", "ControlPlane", "State", "TaskCache",
     "HOST_PROFILES", "IntentEngine", "SensitiveField",
+    "firewall_violations", "make_gap_gate",
     "LabelRejected", "guard_label", "label_violations",
     "HashChainLedger", "redact",
     "Bridge", "make_server", "sign_reply", "sign_request",

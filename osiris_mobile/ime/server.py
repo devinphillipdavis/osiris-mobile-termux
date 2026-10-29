@@ -23,6 +23,9 @@ Transport rules, each a fix to the v1.0 reference daemon:
   booleans: ``"false"`` is rejected, not read as true.
 * **Nothing leaves the device.** The daemon never calls a model, an API or a shell. It
   returns text and states; the keyboard dispatches only on an operator tap.
+* **Advance sequences expire.** Staged turns belong to a sequence that lives
+  ``ADVANCE_TTL_MS`` from the first turn; continuing it (``iteration`` > 1) needs its
+  ``advance_sequence_id`` and fails with 409 ``ADVANCE_EXPIRED`` once it has lapsed.
 """
 
 import argparse
@@ -35,20 +38,22 @@ import secrets
 import socket
 import stat
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from .. import __version__, store
-from .clipboard import ASTClipboard, IngestRejected
+from .clipboard import ASTClipboard, FirewallRejected, IngestRejected
 from .control import PROTOCOL_VERSION, Action, ControlPlane, ControlRejected, TaskConflict
 from .engine import IntentEngine, SensitiveField
+from .gate import make_gap_gate
 from .labels import guard_label
 from .ledger import HashChainLedger
 
 __all__ = [
-    "MAX_BODY_BYTES", "MAX_SKEW_MS", "LOOPBACK_HOSTS",
+    "MAX_BODY_BYTES", "MAX_SKEW_MS", "LOOPBACK_HOSTS", "ADVANCE_TTL_MS", "AUTO_GATE",
     "sign_request", "sign_reply", "Bridge", "make_server", "main",
 ]
 
@@ -60,6 +65,11 @@ MAX_SKEW_MS = 60_000
 MAX_CONTEXT_NODES = 8
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 MIN_KEY_BYTES = 16
+#: How long an advance sequence can be continued, counted from its first turn.
+ADVANCE_TTL_MS = 120_000
+MAX_ADVANCE_SEQUENCES = 512
+#: Bridge default: gate Auto Advance with osiris-cli's gap analyzer when it is installed.
+AUTO_GATE = object()
 
 
 def _sig(key: bytes, message: bytes) -> str:
@@ -101,14 +111,21 @@ class Bridge(object):
     """Everything a request needs, built once and shared by the handler threads."""
 
     def __init__(self, key: bytes, ledger_path: Path, node_label: str = "NODE_ALPHA",
-                 clock_ms: Any = None) -> None:
+                 clock_ms: Any = None, advance_gate: Any = AUTO_GATE) -> None:
         if len(key) < MIN_KEY_BYTES:
             raise ValueError("pairing key must be at least %d bytes" % MIN_KEY_BYTES)
         self.key = key
         self.node_label = node_label
         self.ledger = HashChainLedger(ledger_path)
         self.clipboard = ASTClipboard(self.ledger)
-        self.engine = IntentEngine(node_label)
+        if advance_gate is AUTO_GATE:
+            advance_gate = make_gap_gate(node_label, self.ledger.head)
+            self.advance_gate_name = "gap_analyzer" if advance_gate else "none"
+        else:
+            self.advance_gate_name = "custom" if advance_gate else "none"
+        self.engine = IntentEngine(node_label, advance_gate=advance_gate)
+        self._sequences: Dict[str, int] = {}  # advance sequence id -> expiry, epoch ms
+        self._sequences_lock = threading.Lock()
         self.control = ControlPlane(handlers={
             Action.HEALTH_CHECK: self.health,
             Action.LEDGER_VERIFY: self._ledger_status,
@@ -126,8 +143,30 @@ class Bridge(object):
             "node": guard_label(self.node_label),
             "protocol_version": PROTOCOL_VERSION,
             "planner": "template",
+            "advance_gate": self.advance_gate_name,
             "ledger": self._ledger_status(),
         }
+
+    def _open_sequence(self) -> Tuple[str, int]:
+        now = self._clock_ms()
+        with self._sequences_lock:
+            for sid in [s for s, exp in self._sequences.items() if exp <= now]:
+                del self._sequences[sid]
+            while len(self._sequences) >= MAX_ADVANCE_SEQUENCES:
+                del self._sequences[min(self._sequences, key=self._sequences.get)]
+            sid = secrets.token_hex(16)
+            self._sequences[sid] = now + ADVANCE_TTL_MS
+            return sid, self._sequences[sid]
+
+    def _live_sequence(self, sid: Optional[str]) -> int:
+        """Expiry of a sequence that can still be continued; 409 otherwise."""
+        if sid is None:
+            raise _BadRequest(409, "ADVANCE_EXPIRED", "iteration > 1 needs advance_sequence_id")
+        with self._sequences_lock:
+            expires = self._sequences.get(sid)
+        if expires is None or expires <= self._clock_ms():
+            raise _BadRequest(409, "ADVANCE_EXPIRED", "advance sequence is unknown or has expired")
+        return expires
 
     def authenticate(self, method: str, path: str, headers: Any, body: bytes) -> None:
         stamp = headers.get("X-Osiris-Timestamp")
@@ -156,6 +195,8 @@ class Bridge(object):
                     source_package=_field(body, "source_package", str, "unknown", max_len=200),
                     provenance=_field(body, "provenance", str, required=True, max_len=40),
                 )
+            except FirewallRejected as exc:
+                raise _BadRequest(422, "AST_FIREWALL", str(exc))
             except IngestRejected as exc:
                 raise _BadRequest(422, "INGEST_REJECTED", str(exc))
             return {"status": "ingested", "node": node}
@@ -164,14 +205,18 @@ class Bridge(object):
             n_context = _field(body, "context_nodes", int, 3)
             if not 0 <= n_context <= MAX_CONTEXT_NODES:
                 raise _BadRequest(400, "BAD_FIELD_VALUE", "context_nodes must be 0..%d" % MAX_CONTEXT_NODES)
+            auto_advance = _field(body, "auto_advance", bool, False)
+            iteration = _field(body, "iteration", int, 1)
+            sequence_id = _field(body, "advance_sequence_id", str, None, max_len=64)
+            expires = self._live_sequence(sequence_id) if auto_advance and iteration > 1 else None
             try:
                 result = self.engine.compile(
                     intent=_field(body, "intent", str, required=True),
                     host_package=host,
                     context=self.clipboard.recent(n_context),
                     auto_enhance=_field(body, "auto_enhance", bool, True),
-                    auto_advance=_field(body, "auto_advance", bool, False),
-                    iteration=_field(body, "iteration", int, 1),
+                    auto_advance=auto_advance,
+                    iteration=iteration,
                     sensitive_field=_field(body, "sensitive_field", bool, False),
                 )
             except SensitiveField as exc:
@@ -182,8 +227,14 @@ class Bridge(object):
             self.ledger.append({
                 "event": "INTENT_COMPILED", "timestamp_utc": time.time(), "host_package": host,
                 "prompt_sha256": result["prompt_sha256"], "staged": len(result["staged_next"]),
-                "irreversible": result["irreversible"],
+                "irreversible": result["irreversible"], "advance_state": result["advance_state"],
             })
+            result["advance_sequence"] = None
+            if result["staged_next"]:
+                # A continuation keeps its sequence and expiry; only a first turn opens one.
+                if expires is None:
+                    sequence_id, expires = self._open_sequence()
+                result["advance_sequence"] = {"id": sequence_id, "expires_at_ms": expires}
             result["status"] = "ok"
             return result
         if path == "/v1/control/dispatch":

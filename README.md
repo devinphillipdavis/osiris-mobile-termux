@@ -87,7 +87,10 @@ redacted, hash-chained nodes; rough intent becomes a delineated prompt for the f
 hinge-spine keys map to an allowlist of idempotent actions. Every request and reply is
 HMAC-signed with the pairing key, because Android's loopback is shared by every app. The
 daemon never calls a model, an API or a shell, and nothing it returns is dispatched until
-the operator taps. Protocol, status and what stays gated:
+the operator taps. Captured code that calls `eval`, `exec`, `compile`, `__import__`,
+`os.system` and the like is refused (SYS-025). Auto Advance stages a turn only when
+osiris-cli's gap analyzer clears it, so it needs the full tier; on the lite tier it stages
+nothing. Protocol, status and what stays gated:
 [`docs/OSIRIS-IME-INTERCEPTION-001.md`](docs/OSIRIS-IME-INTERCEPTION-001.md).
 
 ## Layout, tiers, and the qiskit question

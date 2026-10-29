@@ -34,6 +34,11 @@ The rules that follow from it:
    (`MAX_ADVANCE_DEPTH = 5` turns in total). Each one needs its own tap. Steps that prepare
    something pushable are flagged `irreversible` and need a second, distinct confirmation.
    v1.0 had the loop "auto-submit until convergence". An agent loop proposes; it never authorizes.
+   A turn is staged only when the advance gate answers `READY` for it, and the first other
+   answer halts the sequence there (`advance_state: "HALTED"`, `advance_halt`). With
+   osiris-cli installed the gate is its CapabilityGapAnalyzer (§3.1); without it nothing is
+   staged (`NO_GATE`). A sequence can be continued for `ADVANCE_TTL_MS = 120 000` from its
+   first turn, and not after.
 3. **There is no passive capture.** The daemon accepts four provenance labels
    (`explicit_copy`, `share_target`, `selection_menu`, `assist_snapshot`) and refuses any
    other, so background clipboard watching cannot get in, even if a client tries to send it.
@@ -64,6 +69,10 @@ The rules that follow from it:
 | Hinge-spine control plane: allowlist, idempotent `task_id`, honest states | `osiris_mobile/ime/control.py`, `POST /v1/control/dispatch` | `tests/test_ime_core.py` (control), `test_control_dispatch_idempotent_and_journaled_once` | TESTED |
 | HUD label guard | `osiris_mobile/ime/labels.py` | `test_label_guard_*`, `test_osiris_authored_strings_pass_the_guard` | TESTED |
 | Signed loopback daemon `osiris-ime-bridge` | `osiris_mobile/ime/server.py` | `tests/test_ime_server.py` (real socket on 127.0.0.1) | TESTED |
+| SYS-025 AST firewall on captures: whole text and fenced blocks; lexical check when unparseable | `osiris_mobile/ime/firewall.py` | `tests/test_ime_firewall.py`, incl. parity with osiris-cli when installed | TESTED |
+| Enhance prompt: Objective / Active Context / Constraints / Schema, schema per host mode | `engine.IntentEngine.compile` | `test_enhance_delineates_and_never_dispatches`, `test_enhance_schema_follows_the_host_mode` | TESTED |
+| Advance gate: halt at the first non-`READY` turn; no gate, nothing staged | `engine.IntentEngine`, `osiris_mobile/ime/gate.py` | `tests/test_ime_advance.py` (gap-analyzer cases run only with osiris-cli) | TESTED |
+| Advance sequences expire `ADVANCE_TTL_MS` after the first turn | `server.Bridge` | `tests/test_ime_advance.py` (sequence expiry) | TESTED |
 | Kotlin wire contract: signing, reply check, UUIDv7, `ControlRequest`, password detection | `android/.../ime/ImeBridgeProtocol.kt` | `ImeBridgeProtocolTest.kt` (JVM), `tests/test_ime_protocol_parity.py` (golden vectors, allowlist drift) | TESTED (JVM, not on device) |
 | Loopback-only cleartext policy | `res/xml/network_security_config.xml` | none, APK not built in CI | NOT VERIFIED |
 | `InputMethodService` UI: split layout, Center Spine, intent bar, chips | not built | — | DESIGN (§6) |
@@ -71,6 +80,17 @@ The rules that follow from it:
 | `VoiceInteractionService` assistant, screen snapshot | not built | — | GATED (§7) |
 | DevOps bridge (git/gh/gcloud from the keyboard) | not built | — | GATED (§7) |
 | SMS, email and voice-call contact | not built | — | GATED (§7) |
+
+### 3.1 The advance gate on the full tier
+
+`gate.make_gap_gate` turns each turn into a `ProposedStep` for the capability
+`ime.advance.stage` on this node, bound to the journal head as its workspace snapshot,
+and answers with `CapabilityGapAnalyzer`'s disposition. It supplies only what the bridge
+has. The policy is rule 2 above: staging text is `ALLOWED` (bound to the turn's
+fingerprint), and an irreversible turn is `APPROVAL_REQUIRED`, so the sequence halts
+before it with `WAITING_APPROVAL`. A capture journaled while a turn is judged moves the
+head and halts with `NEEDS_CONTEXT`. No context requirements, verifiers or confidence
+threshold are declared, because none is registered for staging.
 
 Two figures from the v1.0 design are not implemented as described:
 
@@ -110,9 +130,9 @@ so the keyboard can tell the paired daemon from anything else listening on the p
 
 | Endpoint | Body | Success |
 | :--- | :--- | :--- |
-| `GET /v1/health` | — | `status`, `component`, `node`, `protocol_version`, `planner`, `ledger {entries, head, chain_ok}` |
+| `GET /v1/health` | — | `status`, `component`, `node`, `protocol_version`, `planner`, `advance_gate` (`gap_analyzer`, `custom` or `none`), `ledger {entries, head, chain_ok}` |
 | `POST /v1/ast/ingest` | `text`, `provenance` (required); `source_package` | `{status: "ingested", node}` |
-| `POST /v1/intent/intercept` | `intent` (required); `host_package`, `auto_enhance`, `auto_advance`, `iteration`, `sensitive_field`, `context_nodes` (0–8) | `compiled_host_prompt`, `prompt_sha256`, `staged_next[]`, `irreversible`, `requires_operator_dispatch` |
+| `POST /v1/intent/intercept` | `intent` (required); `host_package`, `auto_enhance`, `auto_advance`, `iteration`, `advance_sequence_id` (required when `auto_advance` and `iteration` > 1), `sensitive_field`, `context_nodes` (0–8) | `compiled_host_prompt`, `prompt_sha256`, `staged_next[]`, `advance_state`, `advance_halt`, `advance_sequence {id, expires_at_ms}` (null when nothing is staged), `irreversible`, `requires_operator_dispatch` |
 | `POST /v1/control/dispatch` | `protocol_version: "1.0"`, `task_id` (canonical UUID), `intent: "tui.dispatch_card"`, `parameters {action_name, accelerator}` | `state` ∈ `EXECUTED`, `REQUIRES_GRANT`, `UNSUPPORTED`, `FAILED`; `replayed` |
 
 Allowlisted actions: `health.check` and `ledger.verify` (executed here), `nclm.status`
@@ -121,8 +141,9 @@ Allowlisted actions: `health.check` and `ledger.verify` (executed here), `nclm.s
 
 Errors are JSON `{error, detail}`, never a traceback: `401 UNSIGNED | BAD_TIMESTAMP |
 STALE_REQUEST | BAD_SIGNATURE`, `400 BAD_JSON | MISSING_FIELD | BAD_FIELD_TYPE |
-FIELD_TOO_LONG | BAD_FIELD_VALUE | BAD_INTENT`, `409 SENSITIVE_FIELD | TASK_ID_CONFLICT`,
-`411`, `413 BODY_TOO_LARGE` (256 KiB), `422 INGEST_REJECTED | CONTROL_REJECTED`,
+FIELD_TOO_LONG | BAD_FIELD_VALUE | BAD_INTENT`, `409 SENSITIVE_FIELD | TASK_ID_CONFLICT |
+ADVANCE_EXPIRED`, `411`, `413 BODY_TOO_LARGE` (256 KiB), `422 INGEST_REJECTED |
+AST_FIREWALL | CONTROL_REJECTED`,
 `404 NO_ROUTE`, `405`. JSON booleans must be booleans: the string `"false"` is rejected,
 not read as true.
 

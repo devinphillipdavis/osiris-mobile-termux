@@ -15,14 +15,12 @@ import hashlib
 import time
 from typing import Any, Deque, Dict, List, Optional
 
+from .firewall import MAX_PARSE_CHARS, firewall_violations
 from .ledger import HashChainLedger
 from .redact import redact
 
-__all__ = ["Provenance", "PayloadType", "IngestRejected", "ASTClipboard"]
+__all__ = ["Provenance", "PayloadType", "IngestRejected", "FirewallRejected", "ASTClipboard"]
 
-#: Upper bound on characters handed to ``ast.parse``; deep or huge input can exhaust
-#: the parser's stack long before it produces anything useful for a preview.
-MAX_PARSE_CHARS = 64 * 1024
 PREVIEW_CHARS = 500
 
 
@@ -61,6 +59,14 @@ _DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import,
 
 class IngestRejected(ValueError):
     """Capture refused: empty, oversized, or carrying an unknown provenance label."""
+
+
+class FirewallRejected(IngestRejected):
+    """Capture refused by the SYS-025 AST firewall (see ``firewall``)."""
+
+    def __init__(self, violations: List[str]) -> None:
+        super(FirewallRejected, self).__init__("SYS-025 AST firewall: " + "; ".join(violations))
+        self.violations = list(violations)
 
 
 def _python_symbols(text: str) -> Optional[List[str]]:
@@ -125,6 +131,9 @@ class ASTClipboard(object):
             raise IngestRejected("empty capture")
         if len(text) > self.max_chars:
             raise IngestRejected("capture of %d chars exceeds %d" % (len(text), self.max_chars))
+        violations = firewall_violations(text.strip())
+        if violations:
+            raise FirewallRejected(violations)
 
         clean, redactions = redact(text.strip())
         digest = hashlib.sha256(clean.encode("utf-8")).hexdigest()
