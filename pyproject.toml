@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "osiris-mobile"
-version = "0.4.0b0"
+version = "0.5.0b0"
 description = "Android/Termux execution harness for the OSIRIS research stack: fold-aware unified REPL, power-governed routing, and a pre-registration-bound research-ladder runner."
 readme = "README.md"
 requires-python = ">=3.9"
